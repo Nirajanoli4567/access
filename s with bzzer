@@ -1,0 +1,178 @@
+#include <DHT.h>
+#include <ESP8266WiFi.h>
+#include <ArduinoJson.h>
+#include <ESP8266HTTPClient.h>
+
+#define RELAY_PIN D4
+#define DHT_PIN D5
+
+#define DHT_TYPE DHT11
+
+#define TRIGGER_PIN D1
+#define ECHO_PIN D2
+
+#define BUZZER_PIN D3 // Define the pin for the buzzer
+
+DHT dht(DHT_PIN, DHT_TYPE);
+
+// Wi-Fi Credentials
+const char *ssid = "sagar kc";
+const char *password = "sagar1234@1234";
+
+String device_id = "Device0001";
+WiFiClient esp_client;
+HTTPClient http;
+
+// Replace with PC IP with PORT
+String Host = "http://192.168.31.44:80";
+String dataSendUrl = Host + "/practice/index.php";
+
+// Data Sending Time
+unsigned long CurrentMillis, PreviousMillis, DataSendingTime = 10000; // 10 seconds
+
+// Variables
+float DHT_Temperature, DHT_Humidity;
+long ultrasonicDistance;
+
+void setup()
+{
+  Serial.begin(115200);
+  pinMode(RELAY_PIN, OUTPUT);
+  pinMode(TRIGGER_PIN, OUTPUT);
+  pinMode(ECHO_PIN, INPUT);
+  pinMode(BUZZER_PIN, OUTPUT); // Set buzzer pin as output
+  digitalWrite(RELAY_PIN, LOW);
+  dht.begin();
+  delay(5000);
+  Serial.println("\n\nWelcome To Access.....\n");
+  setup_wifi();
+}
+
+void loop()
+{
+  // Read DHT sensor
+  DHT_Temperature = dht.readTemperature();
+  DHT_Humidity = dht.readHumidity();
+
+  // Read ultrasonic sensor
+  ultrasonicDistance = measureDistance();
+
+  // Check if readings are valid
+  if (!isnan(DHT_Temperature) && !isnan(DHT_Humidity) && ultrasonicDistance != 0)
+  {
+    Serial.println("\n\nDHT Temperature: " + String(DHT_Temperature) + " °C");
+    Serial.println("DHT Humidity: " + String(DHT_Humidity) + " %");
+    Serial.println("Ultrasonic Distance: " + String(ultrasonicDistance) + " cm");
+
+    // Devices State Sync Request
+    CurrentMillis = millis();
+    if (CurrentMillis - PreviousMillis > DataSendingTime)
+    {
+      PreviousMillis = CurrentMillis;
+
+      // Create JSON object
+      StaticJsonDocument<200> jsonDoc;
+      jsonDoc["device_id"] = device_id;
+      jsonDoc["data"]["temperature"] = DHT_Temperature;
+      jsonDoc["data"]["humidity"] = DHT_Humidity;
+      jsonDoc["data"]["distance"] = ultrasonicDistance;
+
+      // Serialize JSON to string
+      String jsonData;
+      serializeJson(jsonDoc, jsonData);
+
+      // Send data
+      send_data(dataSendUrl, jsonData);
+    }
+
+    // Check if ultrasonic distance is less than 4 cm
+    if (ultrasonicDistance < 4)
+    {
+      // Activate the buzzer
+      digitalWrite(BUZZER_PIN, HIGH);
+    }
+    else
+    {
+      // Deactivate the buzzer
+      digitalWrite(BUZZER_PIN, LOW);
+    }
+  }
+  else
+  {
+    Serial.println("\n\nFailed to read sensor data!");
+    delay(1000);
+  }
+
+  delay(1000);
+}
+
+void setup_wifi()
+{
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println("\"" + String(ssid) + "\"");
+
+  WiFi.begin(ssid, password);
+  while (WiFi.status() != WL_CONNECTED)
+  {
+    delay(500);
+    Serial.print(".");
+  }
+  Serial.println("\nWiFi connected");
+  Serial.print("IP address: ");
+  Serial.println(WiFi.localIP());
+}
+
+long measureDistance()
+{
+  // Send ultrasonic pulse
+  digitalWrite(TRIGGER_PIN, LOW);
+  delayMicroseconds(2);
+  digitalWrite(TRIGGER_PIN, HIGH);
+  delayMicroseconds(10);
+  digitalWrite(TRIGGER_PIN, LOW);
+
+  // Measure the pulse duration
+  long duration = pulseIn(ECHO_PIN, HIGH);
+
+  // Convert the pulse duration to distance
+  long distance = duration * 0.034 / 2; // Speed of sound is 34 cm/ms
+
+  return distance;
+}
+
+void send_data(String requestUrl, String body)
+{
+  if (WiFi.status() == WL_CONNECTED)
+  {
+    Serial.println("\n\nRequestUrl: " + requestUrl);
+    Serial.println("POST body: " + body);
+
+    http.begin(esp_client, requestUrl);
+    // Send HTTP POST request
+    int httpResponseCode = http.POST(body);
+    Serial.print("\nHTTP Response code: ");
+    Serial.println(httpResponseCode);
+
+    if (httpResponseCode == HTTP_CODE_CREATED)
+    {
+      String response_body = http.getString();
+      Serial.println("response_body: " + response_body);
+
+      DynamicJsonDocument doc(1024);
+      deserializeJson(doc, response_body);
+      JsonObject obj = doc.as<JsonObject>();
+
+      String response = obj["response"];
+      Serial.println("response: " + response);
+    }
+    else
+    {
+      Serial.print("Error code: ");
+      Serial.println(httpResponseCode);
+    }
+    // Free resources
+    http.end();
+  }
+  else
+    Serial.println("WiFi is not connected");
