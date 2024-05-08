@@ -1,0 +1,17 @@
+#define DO_PIN D7  // The ESP8266 pin connected to DO pin of the flame sensor
+
+void setup() {
+  // Initialize the Serial to communicate with the Serial Monitor.
+  Serial.begin(9600);
+  // initialize the ESP8266's pin as an input
+  pinMode(DO_PIN, INPUT);
+}
+
+void loop() {
+  int flame_state = digitalRead(DO_PIN);
+
+  if (flame_state == HIGH)
+    Serial.println("No flame => No fire detected");
+  else
+    Serial.println("Flame present => Fire detected");
+}
