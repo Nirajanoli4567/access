@@ -1,0 +1,105 @@
+#include <ESP8266WiFi.h>
+#include <ArduinoJson.h>
+#include <ESP8266HTTPClient.h>
+
+#define FLAME_SENSOR D7
+
+// WiFi Credentials
+const char *ssid = "local";
+const char *password = "local123";
+
+String device_id = "Flamesensor";
+WiFiClient esp_client;
+HTTPClient http;
+
+// Server details
+String host = "http://192.168.2.20:80";
+String dataSendUrl = host + "/flame/index.php";
+
+// Flame state variables
+bool prev_flame_state = LOW;
+unsigned long last_flame_state_change_ms = 0;
+const unsigned long DEBOUNCE_INTERVAL_MS = 1000; // Adjust debounce interval as needed
+
+void setup() {
+  Serial.begin(9600);
+  pinMode(FLAME_SENSOR, INPUT);
+  connectWifi();
+}
+
+void loop() {
+  // Read flame sensor state
+  int flame_state = digitalRead(FLAME_SENSOR);
+
+  if (flame_state != prev_flame_state) {
+    last_flame_state_change_ms = millis();
+  }
+
+  if ((millis() - last_flame_state_change_ms) > DEBOUNCE_INTERVAL_MS) {
+   if (flame_state == HIGH) {
+  Serial.println("Flame detected!");
+  sendDataToServer(false); // Send data to server when flame detected, value 0
+} else {
+  Serial.println("No flame detected");
+  sendDataToServer(true); // Send data to server indicating no flame detected, value 1
+}
+
+    prev_flame_state = flame_state;
+  }
+
+  delay(1000); // 1-second delay before next data transmission
+}
+
+void connectWifi() {
+  Serial.println();
+  Serial.print("Connecting to ");
+  Serial.println("\"" + String(ssid) + "\"");
+
+  WiFi.begin(ssid, password);
+  int attempts = 0;
+  while (WiFi.status() != WL_CONNECTED && attempts < 20) { // Retry connection
+    delay(500);
+    Serial.print(".");
+    attempts++;
+  }
+
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.println("\nWiFi connected");
+    Serial.print("IP address: ");
+    Serial.println(WiFi.localIP());
+  } else {
+    Serial.println("\nWiFi connection failed. Check credentials or network.");
+  }
+}
+
+void sendDataToServer(bool flameDetected) {
+  StaticJsonDocument<100> jsonDoc;
+
+  jsonDoc["device_id"] = device_id;
+  jsonDoc["flame_detected"] = flameDetected ? 0 : 1; // Set value to 1 if no flame detected, otherwise set to 0
+
+  // Serialize JSON to a String
+  String jsonString;
+  serializeJson(jsonDoc, jsonString);
+
+  if (WiFi.status() == WL_CONNECTED) {
+    http.begin(esp_client, dataSendUrl);
+    http.addHeader("Content-Type", "application/json");
+
+    int httpResponseCode = http.POST(jsonString);
+
+    if (httpResponseCode > 0) {
+      Serial.print("HTTP Response code: ");
+      Serial.println(httpResponseCode);
+      String response = http.getString();
+      Serial.println(response);
+    } else {
+      Serial.print("Error code: ");
+      Serial.println(httpResponseCode);
+    }
+
+    http.end();
+  } else {
+    Serial.println("WiFi not connected. Cannot send data to server.");
+  }
+}
