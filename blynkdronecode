@@ -1,0 +1,47 @@
+#define BLYNK_TEMPLATE_ID "TMPL6sR60Qtp-"
+#define BLYNK_TEMPLATE_NAME "Dronecontroller"
+#define BLYNK_AUTH_TOKEN "AGaggGEBLkOGK2yTRa6KE9FYPPlVQf6I"
+
+#define BLYNK_PRINT Serial
+#include <ESP8266WiFi.h>
+#include <BlynkSimpleEsp8266.h>
+
+char auth[] = "AGaggGEBLkOGK2yTRa6KE9FYPPlVQf6I"; // Your Blynk auth token
+char ssid[] = "Nirajan"; // Your WiFi network name
+char pass[] = "nirajan1234"; // Your WiFi password
+
+#include <Servo.h>
+
+// Connect the signal wire of the ESC to pin D5
+const int ESC_PIN = D5;
+Servo ESC;
+
+BlynkTimer timer;
+
+void setup() {
+  Serial.begin(115200);
+  Blynk.begin(auth, ssid, pass);
+  
+  ESC.attach(ESC_PIN); // Attach ESC to pin D5
+  timer.setInterval(1000L, sendSpeedToBlynk); // Set interval for sending speed to Blynk (every 1 second)
+}
+
+void loop() {
+  Blynk.run();
+  timer.run();
+}
+
+void sendSpeedToBlynk() {
+  // Read the current throttle value from the ESC
+  int currentThrottle = ESC.read();
+  // Send the current throttle value to virtual pin V1 in Blynk app
+  Blynk.virtualWrite(V1, currentThrottle);
+}
+
+BLYNK_WRITE(V0) {
+  int throttleValue = param.asInt(); // Get throttle value from Blynk app slider
+  // Map the throttle value (0-100) to ESC range (1000-2000)
+  int escValue = map(throttleValue, 0, 100, 1000, 2000);
+  // Send the mapped value to the ESC
+  ESC.writeMicroseconds(escValue);
+}
